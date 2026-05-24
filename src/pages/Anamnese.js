@@ -1,10 +1,9 @@
 // src/pages/Anamnese.js
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { generatePlan } from '../lib/planEngine'
 
-// ── estilos inline para não precisar de arquivos CSS extras ──
 const S = {
   wrap:    { fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '0 auto', padding: '24px 16px 48px', color: '#1a1a1a' },
   header:  { background: '#E1F5EE', border: '0.5px solid #9FE1CB', borderRadius: 12, padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 },
@@ -39,9 +38,6 @@ const S = {
   dotOn:   { background: '#1D9E75' },
 }
 
-// ── dados das etapas ──────────────────────────────────────────
-const TOTAL = 8
-
 const OBJ_PRINCIPAL = ['Ganho de massa muscular','Perda de gordura','Recomposição corporal','Condicionamento físico','Manutenção','Performance esportiva','Saúde e qualidade de vida']
 const OBJ_SEC       = ['Mais energia no dia a dia','Reduzir estresse e ansiedade','Melhorar postura','Aumentar flexibilidade','Preparação para evento','Reabilitação']
 const NIVEIS        = ['Iniciante — nunca treinei ou parei há mais de 1 ano','Básico — treino há menos de 1 ano','Intermediário — treino consistente há 1–3 anos','Avançado — mais de 3 anos com consistência']
@@ -61,8 +57,8 @@ const ALIMENTACAO   = ['Muito desregulada','Irregular, mas consciente','Razoáve
 const RESTRICOES    = ['Vegetariano(a)','Vegano(a)','Intolerante à lactose','Celíaco(a) / sem glúten','Alergia a ovos','Nenhuma']
 const MUSCULOS_FAV  = ['Peito','Costas','Ombros','Bíceps','Tríceps','Glúteos','Quadríceps','Posterior de coxa','Core / Abdômen','Panturrilha','Cardio']
 const APP_ANT       = ['Nunca','Sim, mas larguei por falta de motivação','Sim, mas era genérico demais','Sim, funcionou bem']
+const TOTAL = 8
 
-// ── componente Chip ───────────────────────────────────────────
 function Chip({ label, selected, onToggle, variant = 'default' }) {
   let style = { ...S.chip }
   if (selected) {
@@ -73,87 +69,80 @@ function Chip({ label, selected, onToggle, variant = 'default' }) {
   return <div style={style} onClick={onToggle}>{label}</div>
 }
 
-// ── componente principal ──────────────────────────────────────
 export default function Anamnese() {
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
+  const location = useLocation()
+  // recebe authUser e nome vindos do Login
+  const authUser = location.state?.authUser || null
+  const nomeInicial = location.state?.nome || ''
+
+  const [step, setStep]     = useState(1)
   const [saving, setSaving] = useState(false)
   const [answers, setAnswers] = useState({
-    // etapa 1
-    nome: '', email: '', nascimento: '', sexo: '', cidade: '',
-    // etapa 2
+    nome: nomeInicial, email: authUser?.email || '', nascimento: '', sexo: '', cidade: '',
     peso: '', altura: '', gordura: '', pesoMeta: '', prazo: '',
-    // etapa 3
     primaryGoal: '', secondaryGoals: [], goalDescription: '',
-    // etapa 4
     experienceLevel: '', modalities: [], trainingBreak: '',
-    // etapa 5
     location: [], equipment: [], daysPerWeek: '', sessionDuration: '', preferredPeriod: [],
-    // etapa 6
     healthConditions: [], injuries: [], injuryNotes: '', medications: '', pregnancyStatus: '',
-    // etapa 7
     occupation: '', activityLevel: '', dietQuality: '', dietaryRestrictions: [],
-    // etapa 8
     preferredMuscles: [], previousApp: '', additionalNotes: '',
   })
 
-  // helpers
-  const set = (key, val) => setAnswers(prev => ({ ...prev, [key]: val }))
+  const set       = (key, val) => setAnswers(prev => ({ ...prev, [key]: val }))
   const toggleMulti = (key, val) => setAnswers(prev => {
     const arr = prev[key]
     return { ...prev, [key]: arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val] }
   })
   const setSingle = (key, val) => set(key, val === answers[key] ? '' : val)
+  const pct   = Math.round((step / (TOTAL + 1)) * 100)
 
-  const pct  = Math.round((step / (TOTAL + 1)) * 100)
-  const label = step <= TOTAL ? `Passo ${step} de ${TOTAL}` : 'Revisão'
-
-  // ── mapeamento nível ──────────────────────────────────────
   function getLevelKey(levelStr) {
     if (!levelStr) return 'beginner'
-    if (levelStr.startsWith('Iniciante')) return 'beginner'
-    if (levelStr.startsWith('Básico'))    return 'basic'
-    if (levelStr.startsWith('Intermediário')) return 'intermediate'
-    if (levelStr.startsWith('Avançado')) return 'advanced'
+    if (levelStr.startsWith('Iniciante'))    return 'beginner'
+    if (levelStr.startsWith('Básico'))       return 'basic'
+    if (levelStr.startsWith('Intermediário'))return 'intermediate'
+    if (levelStr.startsWith('Avançado'))     return 'advanced'
     return 'beginner'
   }
 
-  // ── envio ─────────────────────────────────────────────────
   async function handleSubmit() {
     setSaving(true)
     try {
       const plan = generatePlan({
         primaryGoal:     answers.primaryGoal,
         experienceLevel: getLevelKey(answers.experienceLevel),
-        daysPerWeek:     answers.daysPerWeek.replace(' dia','').replace('s','').trim(),
+        daysPerWeek:     answers.daysPerWeek.replace(/[^0-9]/g, '').trim() || '3',
         injuries:        answers.injuries.length ? answers.injuries : ['Nenhuma'],
         equipment:       answers.equipment,
         location:        answers.location,
       })
 
-      const { data, error } = await supabase.from('users').insert([{
-        nome:           answers.nome,
-        email:          answers.email,
-        nascimento:     answers.nascimento,
-        sexo:           answers.sexo,
-        cidade:         answers.cidade,
-        peso:           parseFloat(answers.peso) || null,
-        altura:         parseFloat(answers.altura) || null,
-        gordura:        parseFloat(answers.gordura) || null,
-        peso_meta:      parseFloat(answers.pesoMeta) || null,
-        prazo_meses:    parseInt(answers.prazo) || null,
-        primary_goal:   answers.primaryGoal,
-        secondary_goals: answers.secondaryGoals,
+      const insertData = {
+        auth_id:          authUser?.id || null,
+        nome:             answers.nome,
+        email:            answers.email,
+        nascimento:       answers.nascimento,
+        sexo:             answers.sexo,
+        cidade:           answers.cidade,
+        peso:             parseFloat(answers.peso) || null,
+        altura:           parseFloat(answers.altura) || null,
+        gordura:          parseFloat(answers.gordura) || null,
+        peso_meta:        parseFloat(answers.pesoMeta) || null,
+        prazo_meses:      parseInt(answers.prazo) || null,
+        primary_goal:     answers.primaryGoal,
+        secondary_goals:  answers.secondaryGoals,
         experience_level: getLevelKey(answers.experienceLevel),
-        injuries:       answers.injuries,
-        health_conditions: answers.healthConditions,
-        equipment:      answers.equipment,
-        location:       answers.location,
-        days_per_week:  parseInt(answers.daysPerWeek) || 3,
-        plan:           plan,
-        created_at:     new Date().toISOString(),
-      }]).select()
+        injuries:         answers.injuries,
+        health_conditions:answers.healthConditions,
+        equipment:        answers.equipment,
+        location:         answers.location,
+        days_per_week:    parseInt(answers.daysPerWeek) || 3,
+        plan:             plan,
+        created_at:       new Date().toISOString(),
+      }
 
+      const { data, error } = await supabase.from('users').insert([insertData]).select()
       if (error) throw error
       const userId = data[0].id
       navigate(`/home/${userId}`, { state: { plan, user: data[0] } })
@@ -164,7 +153,6 @@ export default function Anamnese() {
     }
   }
 
-  // ── renderiza etapa ───────────────────────────────────────
   function renderStep() {
     switch (step) {
       case 1: return (
@@ -173,7 +161,7 @@ export default function Anamnese() {
           <div style={S.title}>Vamos começar com o básico</div>
           <div style={S.row2}>
             <div style={S.field}><label style={S.fLabel}>Nome completo <span style={{color:'#E24B4A'}}>*</span></label><input style={S.input} value={answers.nome} onChange={e => set('nome', e.target.value)} placeholder="Como quer ser chamado(a)?" /></div>
-            <div style={S.field}><label style={S.fLabel}>E-mail <span style={{color:'#E24B4A'}}>*</span></label><input style={S.input} type="email" value={answers.email} onChange={e => set('email', e.target.value)} placeholder="seu@email.com" /></div>
+            <div style={S.field}><label style={S.fLabel}>E-mail <span style={{color:'#E24B4A'}}>*</span></label><input style={S.input} type="email" value={answers.email} onChange={e => set('email', e.target.value)} placeholder="seu@email.com" disabled={!!authUser} /></div>
           </div>
           <div style={S.row3}>
             <div style={S.field}><label style={S.fLabel}>Data de nascimento</label><input style={S.input} value={answers.nascimento} onChange={e => set('nascimento', e.target.value)} placeholder="DD/MM/AAAA" /></div>
@@ -202,62 +190,29 @@ export default function Anamnese() {
         <div style={S.card}>
           <div style={S.label}>Objetivos</div>
           <div style={S.title}>O que você quer alcançar?</div>
-          <div style={S.field}>
-            <label style={S.fLabel}>Objetivo principal <span style={{color:'#E24B4A'}}>*</span> <span style={S.fHint}>(escolha um)</span></label>
-            <div style={S.chips}>{OBJ_PRINCIPAL.map(o => <Chip key={o} label={o} selected={answers.primaryGoal === o} onToggle={() => setSingle('primaryGoal', o)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Objetivos secundários <span style={S.fHint}>(pode marcar vários)</span></label>
-            <div style={S.chips}>{OBJ_SEC.map(o => <Chip key={o} label={o} selected={answers.secondaryGoals.includes(o)} onToggle={() => toggleMulti('secondaryGoals', o)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Descreva seu objetivo <span style={S.fHint}>(opcional)</span></label>
-            <textarea style={S.textarea} value={answers.goalDescription} onChange={e => set('goalDescription', e.target.value)} placeholder="Ex: Quero me preparar para uma corrida de 5km e perder uns 5kg..." />
-          </div>
+          <div style={S.field}><label style={S.fLabel}>Objetivo principal <span style={{color:'#E24B4A'}}>*</span> <span style={S.fHint}>(escolha um)</span></label><div style={S.chips}>{OBJ_PRINCIPAL.map(o => <Chip key={o} label={o} selected={answers.primaryGoal === o} onToggle={() => setSingle('primaryGoal', o)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Objetivos secundários <span style={S.fHint}>(pode marcar vários)</span></label><div style={S.chips}>{OBJ_SEC.map(o => <Chip key={o} label={o} selected={answers.secondaryGoals.includes(o)} onToggle={() => toggleMulti('secondaryGoals', o)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Descreva seu objetivo <span style={S.fHint}>(opcional)</span></label><textarea style={S.textarea} value={answers.goalDescription} onChange={e => set('goalDescription', e.target.value)} placeholder="Ex: Quero me preparar para uma corrida de 5km..." /></div>
         </div>
       )
       case 4: return (
         <div style={S.card}>
           <div style={S.label}>Experiência</div>
           <div style={S.title}>Qual é o seu histórico com exercícios?</div>
-          <div style={S.field}>
-            <label style={S.fLabel}>Nível de experiência <span style={{color:'#E24B4A'}}>*</span></label>
-            <div style={S.chips}>{NIVEIS.map(n => <Chip key={n} label={n} selected={answers.experienceLevel === n} onToggle={() => setSingle('experienceLevel', n)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Modalidades que já praticou</label>
-            <div style={S.chips}>{MODALIDADES.map(m => <Chip key={m} label={m} selected={answers.modalities.includes(m)} onToggle={() => toggleMulti('modalities', m)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Tempo sem treinar regularmente</label>
-            <div style={S.chips}>{PAUSAS.map(p => <Chip key={p} label={p} selected={answers.trainingBreak === p} onToggle={() => setSingle('trainingBreak', p)} />)}</div>
-          </div>
+          <div style={S.field}><label style={S.fLabel}>Nível de experiência <span style={{color:'#E24B4A'}}>*</span></label><div style={S.chips}>{NIVEIS.map(n => <Chip key={n} label={n} selected={answers.experienceLevel === n} onToggle={() => setSingle('experienceLevel', n)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Modalidades que já praticou</label><div style={S.chips}>{MODALIDADES.map(m => <Chip key={m} label={m} selected={answers.modalities.includes(m)} onToggle={() => toggleMulti('modalities', m)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Tempo sem treinar regularmente</label><div style={S.chips}>{PAUSAS.map(p => <Chip key={p} label={p} selected={answers.trainingBreak === p} onToggle={() => setSingle('trainingBreak', p)} />)}</div></div>
         </div>
       )
       case 5: return (
         <div style={S.card}>
           <div style={S.label}>Disponibilidade e Estrutura</div>
           <div style={S.title}>Como e onde você vai treinar?</div>
-          <div style={S.field}>
-            <label style={S.fLabel}>Local de treino <span style={{color:'#E24B4A'}}>*</span> <span style={S.fHint}>(pode marcar vários)</span></label>
-            <div style={S.chips}>{LOCAIS.map(l => <Chip key={l} label={l} selected={answers.location.includes(l)} onToggle={() => toggleMulti('location', l)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Equipamentos disponíveis</label>
-            <div style={S.chips}>{EQUIPAMENTOS.map(e => <Chip key={e} label={e} selected={answers.equipment.includes(e)} onToggle={() => toggleMulti('equipment', e)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Dias disponíveis por semana <span style={{color:'#E24B4A'}}>*</span></label>
-            <div style={S.chips}>{DIAS.map(d => <Chip key={d} label={d} selected={answers.daysPerWeek === d} onToggle={() => setSingle('daysPerWeek', d)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Duração ideal por sessão <span style={{color:'#E24B4A'}}>*</span></label>
-            <div style={S.chips}>{DURACOES.map(d => <Chip key={d} label={d} selected={answers.sessionDuration === d} onToggle={() => setSingle('sessionDuration', d)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Período preferido para treinar</label>
-            <div style={S.chips}>{PERIODOS.map(p => <Chip key={p} label={p} selected={answers.preferredPeriod.includes(p)} onToggle={() => toggleMulti('preferredPeriod', p)} />)}</div>
-          </div>
+          <div style={S.field}><label style={S.fLabel}>Local de treino <span style={{color:'#E24B4A'}}>*</span></label><div style={S.chips}>{LOCAIS.map(l => <Chip key={l} label={l} selected={answers.location.includes(l)} onToggle={() => toggleMulti('location', l)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Equipamentos disponíveis</label><div style={S.chips}>{EQUIPAMENTOS.map(e => <Chip key={e} label={e} selected={answers.equipment.includes(e)} onToggle={() => toggleMulti('equipment', e)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Dias disponíveis por semana <span style={{color:'#E24B4A'}}>*</span></label><div style={S.chips}>{DIAS.map(d => <Chip key={d} label={d} selected={answers.daysPerWeek === d} onToggle={() => setSingle('daysPerWeek', d)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Duração ideal por sessão</label><div style={S.chips}>{DURACOES.map(d => <Chip key={d} label={d} selected={answers.sessionDuration === d} onToggle={() => setSingle('sessionDuration', d)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Período preferido</label><div style={S.chips}>{PERIODOS.map(p => <Chip key={p} label={p} selected={answers.preferredPeriod.includes(p)} onToggle={() => toggleMulti('preferredPeriod', p)} />)}</div></div>
         </div>
       )
       case 6: return (
@@ -265,66 +220,30 @@ export default function Anamnese() {
           <div style={S.label}>Saúde</div>
           <div style={S.title}>Informações de saúde importantes</div>
           <div style={S.infoBox}>Suas respostas são confidenciais e garantem que seu plano seja seguro.</div>
-          <div style={S.field}>
-            <label style={S.fLabel}>Possui alguma condição de saúde?</label>
-            <div style={S.chips}>{SAUDE.map(s => <Chip key={s} label={s} variant="danger" selected={answers.healthConditions.includes(s)} onToggle={() => toggleMulti('healthConditions', s)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Lesões ou restrições físicas</label>
-            <div style={S.chips}>{LESOES.map(l => <Chip key={l} label={l} variant="amber" selected={answers.injuries.includes(l)} onToggle={() => toggleMulti('injuries', l)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Detalhes sobre lesões <span style={S.fHint}>(opcional)</span></label>
-            <textarea style={S.textarea} value={answers.injuryNotes} onChange={e => set('injuryNotes', e.target.value)} placeholder="Ex: Hérnia L4-L5, não posso fazer agachamento com carga alta..." />
-          </div>
-          <div style={{...S.field, marginTop: 8}}>
-            <label style={S.fLabel}>Usa algum medicamento regularmente?</label>
-            <textarea style={{...S.textarea, minHeight: 56}} value={answers.medications} onChange={e => set('medications', e.target.value)} placeholder="Ex: Losartana 50mg..." />
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Está grávida ou em pós-parto?</label>
-            <div style={S.chips}>{GESTACAO.map(g => <Chip key={g} label={g} selected={answers.pregnancyStatus === g} onToggle={() => setSingle('pregnancyStatus', g)} />)}</div>
-          </div>
+          <div style={S.field}><label style={S.fLabel}>Possui alguma condição de saúde?</label><div style={S.chips}>{SAUDE.map(s => <Chip key={s} label={s} variant="danger" selected={answers.healthConditions.includes(s)} onToggle={() => toggleMulti('healthConditions', s)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Lesões ou restrições físicas</label><div style={S.chips}>{LESOES.map(l => <Chip key={l} label={l} variant="amber" selected={answers.injuries.includes(l)} onToggle={() => toggleMulti('injuries', l)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Detalhes sobre lesões <span style={S.fHint}>(opcional)</span></label><textarea style={S.textarea} value={answers.injuryNotes} onChange={e => set('injuryNotes', e.target.value)} placeholder="Ex: Hérnia L4-L5..." /></div>
+          <div style={{...S.field, marginTop: 8}}><label style={S.fLabel}>Usa algum medicamento?</label><textarea style={{...S.textarea, minHeight: 56}} value={answers.medications} onChange={e => set('medications', e.target.value)} placeholder="Ex: Losartana 50mg..." /></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Está grávida ou em pós-parto?</label><div style={S.chips}>{GESTACAO.map(g => <Chip key={g} label={g} selected={answers.pregnancyStatus === g} onToggle={() => setSingle('pregnancyStatus', g)} />)}</div></div>
         </div>
       )
       case 7: return (
         <div style={S.card}>
           <div style={S.label}>Estilo de Vida</div>
           <div style={S.title}>Sua rotina fora do treino</div>
-          <div style={S.field}>
-            <label style={S.fLabel}>Ocupação principal</label>
-            <div style={S.chips}>{OCUPACAO.map(o => <Chip key={o} label={o} selected={answers.occupation === o} onToggle={() => setSingle('occupation', o)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Nível de atividade fora do treino</label>
-            <div style={S.chips}>{ATIVIDADE.map(a => <Chip key={a} label={a} selected={answers.activityLevel === a} onToggle={() => setSingle('activityLevel', a)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Alimentação atual</label>
-            <div style={S.chips}>{ALIMENTACAO.map(a => <Chip key={a} label={a} selected={answers.dietQuality === a} onToggle={() => setSingle('dietQuality', a)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Restrições alimentares</label>
-            <div style={S.chips}>{RESTRICOES.map(r => <Chip key={r} label={r} selected={answers.dietaryRestrictions.includes(r)} onToggle={() => toggleMulti('dietaryRestrictions', r)} />)}</div>
-          </div>
+          <div style={S.field}><label style={S.fLabel}>Ocupação principal</label><div style={S.chips}>{OCUPACAO.map(o => <Chip key={o} label={o} selected={answers.occupation === o} onToggle={() => setSingle('occupation', o)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Nível de atividade fora do treino</label><div style={S.chips}>{ATIVIDADE.map(a => <Chip key={a} label={a} selected={answers.activityLevel === a} onToggle={() => setSingle('activityLevel', a)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Alimentação atual</label><div style={S.chips}>{ALIMENTACAO.map(a => <Chip key={a} label={a} selected={answers.dietQuality === a} onToggle={() => setSingle('dietQuality', a)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Restrições alimentares</label><div style={S.chips}>{RESTRICOES.map(r => <Chip key={r} label={r} selected={answers.dietaryRestrictions.includes(r)} onToggle={() => toggleMulti('dietaryRestrictions', r)} />)}</div></div>
         </div>
       )
       case 8: return (
         <div style={S.card}>
           <div style={S.label}>Preferências de Treino</div>
           <div style={S.title}>Personalize sua experiência</div>
-          <div style={S.field}>
-            <label style={S.fLabel}>Grupos musculares favoritos <span style={S.fHint}>(opcional)</span></label>
-            <div style={S.chips}>{MUSCULOS_FAV.map(m => <Chip key={m} label={m} selected={answers.preferredMuscles.includes(m)} onToggle={() => toggleMulti('preferredMuscles', m)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Já usou app ou plano de treino antes?</label>
-            <div style={S.chips}>{APP_ANT.map(a => <Chip key={a} label={a} selected={answers.previousApp === a} onToggle={() => setSingle('previousApp', a)} />)}</div>
-          </div>
-          <div style={{...S.field, marginTop: 16}}>
-            <label style={S.fLabel}>Algum comentário adicional? <span style={S.fHint}>(opcional)</span></label>
-            <textarea style={S.textarea} value={answers.additionalNotes} onChange={e => set('additionalNotes', e.target.value)} placeholder="Qualquer coisa que queira que seu treinador saiba..." />
-          </div>
+          <div style={S.field}><label style={S.fLabel}>Grupos musculares favoritos <span style={S.fHint}>(opcional)</span></label><div style={S.chips}>{MUSCULOS_FAV.map(m => <Chip key={m} label={m} selected={answers.preferredMuscles.includes(m)} onToggle={() => toggleMulti('preferredMuscles', m)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Já usou app de treino antes?</label><div style={S.chips}>{APP_ANT.map(a => <Chip key={a} label={a} selected={answers.previousApp === a} onToggle={() => setSingle('previousApp', a)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Comentário adicional <span style={S.fHint}>(opcional)</span></label><textarea style={S.textarea} value={answers.additionalNotes} onChange={e => set('additionalNotes', e.target.value)} placeholder="Qualquer coisa que queira que seu treinador saiba..." /></div>
         </div>
       )
       default: return null
@@ -340,16 +259,11 @@ export default function Anamnese() {
           <div style={S.hSub}>Suas respostas moldam um plano 100% personalizado</div>
         </div>
       </div>
-
       <div style={S.progBar}><div style={{...S.progFill, width: pct + '%'}} /></div>
-      <div style={S.progRow}><span>{label}</span><span>{pct}%</span></div>
-
+      <div style={S.progRow}><span>Passo {step} de {TOTAL}</span><span>{pct}%</span></div>
       {renderStep()}
-
       <div style={S.nav}>
-        {step > 1
-          ? <button style={S.btnBack} onClick={() => setStep(s => s - 1)}>← Voltar</button>
-          : <div />}
+        {step > 1 ? <button style={S.btnBack} onClick={() => setStep(s => s - 1)}>← Voltar</button> : <div />}
         <div style={S.dots}>
           {Array.from({length: TOTAL}, (_, i) => (
             <div key={i} style={{...S.dot, ...(i + 1 === step ? S.dotOn : i + 1 < step ? {background:'#9FE1CB'} : {})}} />
@@ -357,9 +271,7 @@ export default function Anamnese() {
         </div>
         {step < TOTAL
           ? <button style={S.btnNext} onClick={() => setStep(s => s + 1)}>Próximo →</button>
-          : <button style={S.btnNext} onClick={handleSubmit} disabled={saving}>
-              {saving ? 'Gerando plano...' : 'Gerar meu plano ✓'}
-            </button>}
+          : <button style={S.btnNext} onClick={handleSubmit} disabled={saving}>{saving ? 'Gerando plano...' : 'Gerar meu plano ✓'}</button>}
       </div>
     </div>
   )
