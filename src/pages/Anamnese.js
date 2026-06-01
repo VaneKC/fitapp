@@ -46,6 +46,7 @@ const PAUSAS        = ['Não parei','Menos de 3 meses','3–6 meses','6–12 mes
 const LOCAIS        = ['Academia completa','Em casa (sem equipamentos)','Em casa (com equipamentos)','Ao ar livre / parque','Hotel / viagens']
 const EQUIPAMENTOS  = ['Halteres / anilhas','Barra e suporte','Kettlebell','Barra fixa (pull-up bar)','Elásticos / bandas','Esteira / bicicleta ergométrica','TRX / argolas','Nenhum']
 const DIAS          = ['1 dia','2 dias','3 dias','4 dias','5 dias','6 dias']
+const DIAS_SEMANA   = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
 const DURACOES      = ['Até 30 min','30–45 min','45–60 min','60–90 min','Mais de 90 min']
 const PERIODOS      = ['Manhã cedo (antes das 8h)','Manhã (8h–12h)','Tarde (12h–18h)','Noite (após 18h)','Varia']
 const SAUDE         = ['Hipertensão arterial','Diabetes tipo 1 ou 2','Doença cardiovascular','Problemas respiratórios','Hipotireoidismo / Hipertireoidismo','Síndrome do ovário policístico (SOP)','Ansiedade / Depressão','Nenhuma das acima']
@@ -83,7 +84,7 @@ export default function Anamnese() {
     peso: '', altura: '', gordura: '', pesoMeta: '', prazo: '',
     primaryGoal: '', secondaryGoals: [], goalDescription: '',
     experienceLevel: '', modalities: [], trainingBreak: '',
-    location: [], equipment: [], daysPerWeek: '', sessionDuration: '', preferredPeriod: [],
+    location: [], equipment: [], daysPerWeek: '', preferredDays: [], sessionDuration: '', preferredPeriod: [],
     healthConditions: [], injuries: [], injuryNotes: '', medications: '', pregnancyStatus: '',
     occupation: '', activityLevel: '', dietQuality: '', dietaryRestrictions: [],
     preferredMuscles: [], previousApp: '', additionalNotes: '',
@@ -138,6 +139,7 @@ export default function Anamnese() {
         equipment:        answers.equipment,
         location:         answers.location,
         days_per_week:    parseInt(answers.daysPerWeek) || 3,
+        preferred_days:   answers.preferredDays,
         plan:             plan,
         created_at:       new Date().toISOString(),
       }
@@ -211,6 +213,15 @@ export default function Anamnese() {
           <div style={S.field}><label style={S.fLabel}>Local de treino <span style={{color:'#E24B4A'}}>*</span></label><div style={S.chips}>{LOCAIS.map(l => <Chip key={l} label={l} selected={answers.location.includes(l)} onToggle={() => toggleMulti('location', l)} />)}</div></div>
           <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Equipamentos disponíveis</label><div style={S.chips}>{EQUIPAMENTOS.map(e => <Chip key={e} label={e} selected={answers.equipment.includes(e)} onToggle={() => toggleMulti('equipment', e)} />)}</div></div>
           <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Dias disponíveis por semana <span style={{color:'#E24B4A'}}>*</span></label><div style={S.chips}>{DIAS.map(d => <Chip key={d} label={d} selected={answers.daysPerWeek === d} onToggle={() => setSingle('daysPerWeek', d)} />)}</div></div>
+          <div style={{...S.field, marginTop: 16}}>
+            <label style={S.fLabel}>Quais dias você prefere treinar? <span style={{color:'#E24B4A'}}>*</span> <span style={S.fHint}>(marque os dias)</span></label>
+            <div style={S.chips}>{DIAS_SEMANA.map(d => <Chip key={d} label={d} selected={answers.preferredDays.includes(d)} onToggle={() => toggleMulti('preferredDays', d)} />)}</div>
+            {answers.preferredDays.length > 0 && answers.daysPerWeek && parseInt(answers.daysPerWeek) !== answers.preferredDays.length && (
+              <div style={{fontSize:12,color:'#BA7517',marginTop:6}}>
+                ⚠️ Você selecionou {answers.preferredDays.length} dia{answers.preferredDays.length > 1 ? 's' : ''} mas escolheu {answers.daysPerWeek} acima. Ajuste para bater.
+              </div>
+            )}
+          </div>
           <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Duração ideal por sessão</label><div style={S.chips}>{DURACOES.map(d => <Chip key={d} label={d} selected={answers.sessionDuration === d} onToggle={() => setSingle('sessionDuration', d)} />)}</div></div>
           <div style={{...S.field, marginTop: 16}}><label style={S.fLabel}>Período preferido</label><div style={S.chips}>{PERIODOS.map(p => <Chip key={p} label={p} selected={answers.preferredPeriod.includes(p)} onToggle={() => toggleMulti('preferredPeriod', p)} />)}</div></div>
         </div>

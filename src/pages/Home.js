@@ -73,10 +73,32 @@ export default function Home() {
   }
 
   function calculateSessionIndex(userData) {
-    const days = parseInt(userData.days_per_week) || 3
-    const dayOfWeek = new Date().getDay()
-    const idx = dayOfWeek % Math.min(days, userData.plan?.sessions?.length || 3)
-    setSessionIndex(idx)
+    const preferredDays = userData.preferred_days || []
+    const sessions = userData.plan?.sessions || []
+    if (!sessions.length) return
+
+    const dayNames = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']
+    const todayName = dayNames[new Date().getDay()]
+
+    if (preferredDays.length > 0) {
+      // encontra qual índice de treino corresponde ao dia de hoje
+      const idx = preferredDays.indexOf(todayName)
+      if (idx !== -1) {
+        setSessionIndex(idx % sessions.length)
+      } else {
+        // hoje não é dia de treino — mostra o próximo treino
+        const todayNum = new Date().getDay()
+        const dayNums  = preferredDays.map(d => dayNames.indexOf(d))
+        const next     = dayNums.find(n => n > todayNum) ?? dayNums[0]
+        const nextIdx  = dayNums.indexOf(next)
+        setSessionIndex(nextIdx % sessions.length)
+      }
+    } else {
+      // fallback: distribui automaticamente
+      const days = parseInt(userData.days_per_week) || 3
+      const dayOfWeek = new Date().getDay()
+      setSessionIndex(dayOfWeek % Math.min(days, sessions.length))
+    }
   }
 
   function getProtocolName(protocol) {
@@ -89,13 +111,18 @@ export default function Home() {
     return map[protocol] || 'Condicionamento'
   }
 
-  function getDayStatus(dayIndex, daysPerWeek) {
+  function getDayStatus(dayIndex) {
     const today = new Date().getDay()
     const todayIndex = today === 0 ? 6 : today - 1
+    const dayNames = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
+    const preferredDays = user?.preferred_days || []
+    const trainingIndices = preferredDays.length > 0
+      ? preferredDays.map(d => dayNames.indexOf(d)).filter(n => n !== -1)
+      : getTrainingDays(parseInt(user?.days_per_week) || 3)
+
     if (dayIndex === todayIndex) return 'today'
-    if (dayIndex > todayIndex) return 'future'
-    const trainingDays = getTrainingDays(daysPerWeek)
-    if (trainingDays.includes(dayIndex) && dayIndex < todayIndex) return 'done'
+    if (dayIndex > todayIndex) return trainingIndices.includes(dayIndex) ? 'future' : 'rest'
+    if (trainingIndices.includes(dayIndex)) return 'done'
     return 'rest'
   }
 
@@ -121,9 +148,13 @@ export default function Home() {
   const weekPct = Math.round((currentWeek / totalWeeks) * 100)
 
   function DayCircle({ dayIndex }) {
-    const status = getDayStatus(dayIndex, days)
-    const trainingDays = getTrainingDays(days)
-    const isTraining = trainingDays.includes(dayIndex)
+    const status = getDayStatus(dayIndex)
+    const dayNames = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
+    const preferredDays = user?.preferred_days || []
+    const trainingIndices = preferredDays.length > 0
+      ? preferredDays.map(d => dayNames.indexOf(d)).filter(n => n !== -1)
+      : getTrainingDays(parseInt(user?.days_per_week) || 3)
+    const isTraining = trainingIndices.includes(dayIndex)
     const styles = {
       done:   { background: '#1D9E75', color: 'white' },
       today:  { background: 'white', border: '2px solid #1D9E75', color: '#085041' },

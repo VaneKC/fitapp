@@ -37,7 +37,7 @@ export default function Perfil() {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving]   = useState(false)
   const [saved, setSaved]     = useState(false)
-  const [form, setForm]       = useState({ peso: '', altura: '', gordura: '', peso_meta: '' })
+  const [form, setForm] = useState({ peso: '', altura: '', gordura: '', peso_meta: '', preferred_days: [] })
 
   useEffect(() => {
     if (!user && id) {
@@ -46,11 +46,11 @@ export default function Perfil() {
           if (data) {
             setUser(data)
             setPlan(data.plan)
-            setForm({ peso: data.peso || '', altura: data.altura || '', gordura: data.gordura || '', peso_meta: data.peso_meta || '' })
+            setForm({ peso: data.peso || '', altura: data.altura || '', gordura: data.gordura || '', peso_meta: data.peso_meta || '', preferred_days: data.preferred_days || [] })
           }
         })
     } else if (user) {
-      setForm({ peso: user.peso || '', altura: user.altura || '', gordura: user.gordura || '', peso_meta: user.peso_meta || '' })
+      setForm({ peso: user.peso || '', altura: user.altura || '', gordura: user.gordura || '', peso_meta: user.peso_meta || '', preferred_days: user.preferred_days || [] })
     }
   }, [id])
 
@@ -77,10 +77,11 @@ export default function Perfil() {
   async function saveChanges() {
     setSaving(true)
     const { error } = await supabase.from('users').update({
-      peso:      parseFloat(form.peso) || null,
-      altura:    parseFloat(form.altura) || null,
-      gordura:   parseFloat(form.gordura) || null,
-      peso_meta: parseFloat(form.peso_meta) || null,
+      peso:           parseFloat(form.peso) || null,
+      altura:         parseFloat(form.altura) || null,
+      gordura:        parseFloat(form.gordura) || null,
+      peso_meta:      parseFloat(form.peso_meta) || null,
+      preferred_days: form.preferred_days || [],
     }).eq('id', id)
     setSaving(false)
     if (!error) {
@@ -88,6 +89,8 @@ export default function Perfil() {
       setSaved(true)
       setEditing(false)
       setTimeout(() => setSaved(false), 3000)
+    } else {
+      alert('Erro ao salvar: ' + error.message)
     }
   }
 
@@ -121,6 +124,17 @@ export default function Perfil() {
               <div style={S.infoRow}><span style={S.infoLbl}>IMC</span><span style={S.infoVal}>{calcIMC()}</span></div>
               <div style={S.infoRow}><span style={S.infoLbl}>% Gordura</span><span style={S.infoVal}>{user.gordura ? `${user.gordura}%` : '—'}</span></div>
               <div style={{ ...S.infoRow, borderBottom: 'none' }}><span style={S.infoLbl}>Peso meta</span><span style={S.infoVal}>{user.peso_meta ? `${user.peso_meta} kg` : '—'}</span></div>
+              <div style={{ ...S.infoRow, borderBottom: 'none', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                <span style={S.infoLbl}>Dias de treino</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(user.preferred_days || []).length > 0
+                    ? (user.preferred_days || []).map(d => (
+                        <span key={d} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 12, background: '#E1F5EE', color: '#085041', border: '0.5px solid #9FE1CB' }}>{d}</span>
+                      ))
+                    : <span style={{ fontSize: 12, color: '#aaa' }}>Não definido — edite para configurar</span>
+                  }
+                </div>
+              </div>
               <button style={S.btnEdit} onClick={() => setEditing(true)}>✏️ Atualizar biometria</button>
               {saved && <div style={S.saving}>✓ Salvo com sucesso!</div>}
             </>
@@ -130,6 +144,28 @@ export default function Perfil() {
               <div style={S.field}><label style={S.fLabel}>Altura (cm)</label><input style={S.input} type="number" value={form.altura} onChange={e => setForm(f => ({ ...f, altura: e.target.value }))} placeholder="Ex: 170" /></div>
               <div style={S.field}><label style={S.fLabel}>% Gordura (opcional)</label><input style={S.input} type="number" value={form.gordura} onChange={e => setForm(f => ({ ...f, gordura: e.target.value }))} placeholder="Ex: 22" /></div>
               <div style={S.field}><label style={S.fLabel}>Peso meta (kg)</label><input style={S.input} type="number" value={form.peso_meta} onChange={e => setForm(f => ({ ...f, peso_meta: e.target.value }))} placeholder="Ex: 65" /></div>
+              <div style={S.field}>
+                <label style={S.fLabel}>Dias de treino preferidos</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'].map(d => (
+                    <div key={d}
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        preferred_days: f.preferred_days.includes(d)
+                          ? f.preferred_days.filter(x => x !== d)
+                          : [...f.preferred_days, d]
+                      }))}
+                      style={{
+                        padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+                        cursor: 'pointer', userSelect: 'none', border: '0.5px solid',
+                        background: form.preferred_days.includes(d) ? '#E1F5EE' : '#f7f7f7',
+                        borderColor: form.preferred_days.includes(d) ? '#1D9E75' : '#eee',
+                        color: form.preferred_days.includes(d) ? '#085041' : '#888',
+                      }}
+                    >{d}</div>
+                  ))}
+                </div>
+              </div>
               <button style={S.btnSave} onClick={saveChanges} disabled={saving}>{saving ? 'Salvando...' : '✓ Salvar alterações'}</button>
               <button style={{ ...S.btnEdit, marginTop: 6 }} onClick={() => setEditing(false)}>Cancelar</button>
             </>
