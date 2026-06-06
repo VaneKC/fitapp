@@ -78,6 +78,8 @@ export default function Treino() {
   const [screen, setScreen]     = useState('exec')
   const [ratings, setRatings]   = useState({})
   const [setsDone, setSetsDone] = useState({})
+  const [weights, setWeights]   = useState({}) // { "exIdx-setIdx": peso }
+  const [repsLog, setRepsLog]   = useState({}) // { "exIdx-setIdx": reps }
   const [restSec, setRestSec]   = useState(90)
   const [totalSec, setTotalSec] = useState(0)
   const restRef   = useRef(null)
@@ -125,6 +127,24 @@ export default function Treino() {
     setRatings(r => ({ ...r, [key]: effortKey }))
   }
 
+  function setWeight(val) {
+    const key = `${exIdx}-${doneSets}`
+    setWeights(w => ({ ...w, [key]: val }))
+  }
+
+  function setReps(val) {
+    const key = `${exIdx}-${doneSets}`
+    setRepsLog(r => ({ ...r, [key]: val }))
+  }
+
+  function getWeight(eIdx, sIdx) {
+    return weights[`${eIdx}-${sIdx}`] || weights[`${eIdx}-${sIdx - 1}`] || ''
+  }
+
+  function getReps(eIdx, sIdx) {
+    return repsLog[`${eIdx}-${sIdx}`] || exercises[eIdx]?.reps?.split('–')?.[0] || ''
+  }
+
   function confirmSet() {
     const next = doneSets + 1
     setSetsDone(s => ({ ...s, [exIdx]: next }))
@@ -142,13 +162,41 @@ export default function Treino() {
 
   async function saveLog() {
     try {
+      // monta o log detalhado por série
+      const setsLog = exercises.flatMap((ex, eIdx) => {
+        const total = (() => {
+          const s = String(ex?.sets || '3')
+          if (s.includes('–')) return parseInt(s.split('–')[1])
+          return parseInt(s) || 3
+        })()
+        return Array.from({ length: total }, (_, sIdx) => ({
+          exercise_id:   ex.id,
+          exercise_name: ex.name,
+          muscle:        ex.muscle,
+          set_number:    sIdx + 1,
+          weight_kg:     parseFloat(weights[`${eIdx}-${sIdx}`]) || null,
+          reps_done:     parseInt(repsLog[`${eIdx}-${sIdx}`]) || null,
+          effort:        ratings[`${eIdx}-${sIdx}`] || null,
+        }))
+      })
+
+      // calcula 1RM estimado por exercício principal (fórmula de Epley)
+      const strengthScores = exercises.map((ex, eIdx) => {
+        const w = parseFloat(weights[`${eIdx}-0`]) || 0
+        const r = parseInt(repsLog[`${eIdx}-0`]) || 0
+        const orm = w > 0 && r > 0 ? Math.round(w * (1 + r / 30)) : null
+        return { exercise_id: ex.id, exercise_name: ex.name, estimated_1rm: orm }
+      }).filter(s => s.estimated_1rm)
+
       await supabase.from('session_logs').insert([{
-        user_id:       id,
-        session_label: session.label,
-        ratings:       ratings,
-        duration_sec:  totalSec,
-        completed:     true,
-        created_at:    new Date().toISOString(),
+        user_id:          id,
+        session_label:    session.label,
+        ratings:          ratings,
+        sets_log:         setsLog,
+        strength_scores:  strengthScores,
+        duration_sec:     totalSec,
+        completed:        true,
+        created_at:       new Date().toISOString(),
       }])
     } catch (e) { console.log('Erro ao salvar log:', e) }
   }
@@ -185,20 +233,43 @@ export default function Treino() {
           </div>
           <div style={S.tip}>💡 {ex?.tip}</div>
 
-          <div style={S.setsHdr}><span></span><span>Série</span><span>Reps</span><span>Como foi?</span></div>
+          <div style={S.setsHdr}><span></span><span>Série</span><span>Kg</span><span>Reps</span><span>Esforço</span></div>
           {Array.from({ length: totalSets }, (_, i) => {
             const isDone = i < doneSets
             const isOn   = i === doneSets
             const r      = ratings[`${exIdx}-${i}`]
+            const w      = weights[`${exIdx}-${i}`] || (i > 0 ? weights[`${exIdx}-${i-1}`] : '')
+            const rp     = repsLog[`${exIdx}-${i}`] || ex?.reps?.split('–')?.[0] || ''
             return (
-              <div key={i} style={S.setRow}>
+              <div key={i} style={{ ...S.setRow, gridTemplateColumns: '28px 1fr 60px 55px 90px' }}>
                 <div style={{ ...S.setN, ...(isDone ? S.sNDone : isOn ? S.sNOn : S.sNFut) }}>
                   {isDone ? '✓' : i + 1}
                 </div>
-                <div style={S.setInfo}>{ex?.reps} reps</div>
-                <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>
-                  {isDone ? '✓ feito' : isOn ? '← atual' : ''}
+                <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : isOn ? '#111' : '#ccc' }}>
+                  {isDone ? `${w || '—'} kg · ${rp || '—'} reps` : isOn ? '← atual' : ''}
                 </div>
+                {isOn ? (
+                  <input
+                    type="number"
+                    placeholder="kg"
+                    value={w}
+                    onChange={e => setWeight(e.target.value)}
+                    style={{ width: '100%', fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '0.5px solid #ddd', fontFamily: 'inherit', textAlign: 'center' }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc', textAlign: 'center' }}>{isDone ? w || '—' : ''}</div>
+                )}
+                {isOn ? (
+                  <input
+                    type="number"
+                    placeholder="reps"
+                    value={rp}
+                    onChange={e => setReps(e.target.value)}
+                    style={{ width: '100%', fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '0.5px solid #ddd', fontFamily: 'inherit', textAlign: 'center' }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc', textAlign: 'center' }}>{isDone ? rp || '—' : ''}</div>
+                )}
                 <div style={S.rBtns}>
                   {Object.entries(EFFORT).map(([k, v]) => (
                     <button key={k}
@@ -276,6 +347,28 @@ export default function Treino() {
   }
 
   function renderDone() {
+    // calcula volume total real (peso × reps de todas as séries)
+    let volumeTotal = 0
+    exercises.forEach((ex, eIdx) => {
+      const total = (() => {
+        const s = String(ex?.sets || '3')
+        if (s.includes('–')) return parseInt(s.split('–')[1])
+        return parseInt(s) || 3
+      })()
+      Array.from({ length: total }, (_, sIdx) => {
+        const w = parseFloat(weights[`${eIdx}-${sIdx}`]) || 0
+        const r = parseInt(repsLog[`${eIdx}-${sIdx}`]) || 0
+        volumeTotal += w * r
+      })
+    })
+
+    // pega o 1RM estimado do primeiro exercício composto
+    const mainEx = exercises.find(e => e.isCompound)
+    const mainExIdx = exercises.indexOf(mainEx)
+    const mainW = parseFloat(weights[`${mainExIdx}-0`]) || 0
+    const mainR = parseInt(repsLog[`${mainExIdx}-0`]) || 0
+    const orm = mainW > 0 && mainR > 0 ? Math.round(mainW * (1 + mainR / 30)) : null
+
     return (
       <div style={S.body}>
         <div style={S.doneWrap}>
@@ -284,10 +377,26 @@ export default function Treino() {
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>Duração: {fmtTime(totalSec)}</div>
           <div style={{ fontSize: 12, color: '#1D9E75', marginBottom: 16 }}>{session.label}</div>
           <div style={S.statGrid}>
-            <div style={S.stat}><div style={S.statLbl}>Séries feitas</div><div style={S.statVal}>{exercises.reduce((a, ex) => a + (parseInt(String(ex.sets).split('–')[1] || ex.sets) || 3), 0)}</div><div style={S.statDlt}>Meta ✓</div></div>
-            <div style={S.stat}><div style={S.statLbl}>Exercícios</div><div style={S.statVal}>{exercises.length}</div><div style={S.statDlt}>Completo ✓</div></div>
-            <div style={S.stat}><div style={S.statLbl}>Esforço</div><div style={S.statVal}>{hasLimit ? 'Intenso' : hasEasy ? 'Leve' : 'Ideal'}</div><div style={S.statDlt}>Registrado ✓</div></div>
-            <div style={S.stat}><div style={S.statLbl}>Duração</div><div style={S.statVal}>{Math.floor(totalSec / 60)}<span style={{ fontSize: 13, fontWeight: 400 }}>min</span></div><div style={S.statDlt}>Ótimo ritmo</div></div>
+            <div style={S.stat}>
+              <div style={S.statLbl}>Volume total</div>
+              <div style={S.statVal}>{volumeTotal > 0 ? `${(volumeTotal/1000).toFixed(1)}t` : '—'}</div>
+              <div style={S.statDlt}>{volumeTotal > 0 ? 'Registrado ✓' : 'Sem peso registrado'}</div>
+            </div>
+            <div style={S.stat}>
+              <div style={S.statLbl}>Séries feitas</div>
+              <div style={S.statVal}>{exercises.reduce((a, ex) => a + (parseInt(String(ex.sets).split('–')[1] || ex.sets) || 3), 0)}</div>
+              <div style={S.statDlt}>Meta ✓</div>
+            </div>
+            <div style={S.stat}>
+              <div style={S.statLbl}>1RM estimado</div>
+              <div style={S.statVal}>{orm ? `${orm} kg` : '—'}</div>
+              <div style={{ fontSize: 11, color: '#aaa' }}>{mainEx?.name || '—'}</div>
+            </div>
+            <div style={S.stat}>
+              <div style={S.statLbl}>Duração</div>
+              <div style={S.statVal}>{Math.floor(totalSec / 60)}<span style={{ fontSize: 13, fontWeight: 400 }}>min</span></div>
+              <div style={S.statDlt}>Ótimo ritmo</div>
+            </div>
           </div>
           <div style={S.insightBox}>{insightMsg}</div>
           <button style={S.btnConf} onClick={() => navigate(`/home/${id}`, { state: { plan, user } })}>
