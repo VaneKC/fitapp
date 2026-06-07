@@ -80,6 +80,7 @@ export default function Treino() {
   const [setsDone, setSetsDone] = useState({})
   const [weights, setWeights]   = useState({}) // { "exIdx-setIdx": peso }
   const [repsLog, setRepsLog]   = useState({}) // { "exIdx-setIdx": reps }
+  const [lastLog, setLastLog]   = useState(null)
   const [restSec, setRestSec]   = useState(90)
   const [totalSec, setTotalSec] = useState(0)
   const restRef   = useRef(null)
