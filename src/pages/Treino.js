@@ -28,8 +28,8 @@ const S = {
   eBarBg:   { height: 6, background: '#f0f0f0', borderRadius: 3, overflow: 'hidden', marginBottom: 14 },
   eBarFl:   { height: '100%', borderRadius: 3, transition: 'width .3s, background .3s' },
   tip:      { background: '#f7f7f7', borderLeft: '3px solid #1D9E75', padding: '9px 12px', fontSize: 12, color: '#666', lineHeight: 1.6, marginBottom: 14 },
-  setsHdr:  { display: 'grid', gridTemplateColumns: '28px 1fr 70px 100px', gap: 6, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: '#aaa', paddingBottom: 8, borderBottom: '0.5px solid #eee', marginBottom: 6 },
-  setRow:   { display: 'grid', gridTemplateColumns: '28px 1fr 70px 100px', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: '0.5px solid #f5f5f5' },
+  setsHdr:  { display: 'grid', gridTemplateColumns: '28px 52px 52px 52px 1fr', gap: 6, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: '#aaa', paddingBottom: 8, borderBottom: '0.5px solid #eee', marginBottom: 6, alignItems: 'center' },
+  setRow:   { display: 'grid', gridTemplateColumns: '28px 52px 52px 52px 1fr', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: '0.5px solid #f5f5f5' },
   setN:     { width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 },
   sNDone:   { background: '#E1F5EE', color: '#085041' },
   sNOn:     { background: '#1D9E75', color: 'white' },
@@ -90,6 +90,23 @@ export default function Treino() {
     return () => clearInterval(chronoRef.current)
   }, [])
 
+  // carrega último log desta sessão para sugerir cargas
+  useEffect(() => {
+    async function loadLastLog() {
+      if (!id || !session?.label) return
+      const { data } = await supabase
+        .from('session_logs')
+        .select('sets_log, ratings')
+        .eq('user_id', id)
+        .eq('session_label', session.label)
+        .eq('completed', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (data && data.length > 0) setLastLog(data[0])
+    }
+    loadLastLog()
+  }, [id, session?.label])
+
   useEffect(() => {
     if (screen === 'rest') {
       const dur = exercises[exIdx - 1]?.rest || 90
@@ -127,22 +144,29 @@ export default function Treino() {
     setRatings(r => ({ ...r, [key]: effortKey }))
   }
 
-  function setWeight(val) {
-    const key = `${exIdx}-${doneSets}`
-    setWeights(w => ({ ...w, [key]: val }))
+  // sugere carga baseada no histórico: mesmo peso, +2.5 se fácil, -2.5 se limite
+  function getSuggestedWeight(eIdx, sIdx) {
+    // primeiro verifica se já digitou peso nessa série
+    if (weights[`${eIdx}-${sIdx}`]) return weights[`${eIdx}-${sIdx}`]
+    // replica peso da série anterior da mesma sessão atual
+    if (sIdx > 0 && weights[`${eIdx}-${sIdx-1}`]) return weights[`${eIdx}-${sIdx-1}`]
+    // busca no histórico da última sessão
+    if (!lastLog?.sets_log) return ''
+    const exName = exercises[eIdx]?.name
+    const lastSet = lastLog.sets_log.find(s => s.exercise_name === exName && s.set_number === sIdx + 1)
+    if (!lastSet?.weight_kg) return ''
+    const lastEffort = lastLog.sets_log.find(s => s.exercise_name === exName)?.effort
+    if (lastEffort === 'easy')  return String(lastSet.weight_kg + 2.5)
+    if (lastEffort === 'limit') return String(Math.max(lastSet.weight_kg - 2.5, 0))
+    return String(lastSet.weight_kg)
   }
 
-  function setReps(val) {
-    const key = `${exIdx}-${doneSets}`
-    setRepsLog(r => ({ ...r, [key]: val }))
-  }
-
-  function getWeight(eIdx, sIdx) {
-    return weights[`${eIdx}-${sIdx}`] || weights[`${eIdx}-${sIdx - 1}`] || ''
-  }
-
-  function getReps(eIdx, sIdx) {
-    return repsLog[`${eIdx}-${sIdx}`] || exercises[eIdx]?.reps?.split('–')?.[0] || ''
+  function getSuggestedReps(eIdx, sIdx) {
+    if (repsLog[`${eIdx}-${sIdx}`]) return repsLog[`${eIdx}-${sIdx}`]
+    if (!lastLog?.sets_log) return exercises[eIdx]?.reps?.split('–')?.[0] || ''
+    const exName = exercises[eIdx]?.name
+    const lastSet = lastLog.sets_log.find(s => s.exercise_name === exName && s.set_number === sIdx + 1)
+    return lastSet?.reps_done ? String(lastSet.reps_done) : (exercises[eIdx]?.reps?.split('–')?.[0] || '')
   }
 
   function confirmSet() {
@@ -233,43 +257,42 @@ export default function Treino() {
           </div>
           <div style={S.tip}>💡 {ex?.tip}</div>
 
-          <div style={S.setsHdr}><span></span><span>Série</span><span>Kg</span><span>Reps</span><span>Esforço</span></div>
+          <div style={S.setsHdr}>
+            <span></span>
+            <span style={{textAlign:'center'}}>Kg</span>
+            <span style={{textAlign:'center'}}>Reps</span>
+            <span style={{textAlign:'center'}}>Esforço</span>
+            <span></span>
+          </div>
           {Array.from({ length: totalSets }, (_, i) => {
             const isDone = i < doneSets
             const isOn   = i === doneSets
             const r      = ratings[`${exIdx}-${i}`]
-            const w      = weights[`${exIdx}-${i}`] || (i > 0 ? weights[`${exIdx}-${i-1}`] : '')
-            const rp     = repsLog[`${exIdx}-${i}`] || ex?.reps?.split('–')?.[0] || ''
+            const w      = isOn ? getSuggestedWeight(exIdx, i) : (weights[`${exIdx}-${i}`] || '')
+            const rp     = isOn ? getSuggestedReps(exIdx, i) : (repsLog[`${exIdx}-${i}`] || '')
             return (
-              <div key={i} style={{ ...S.setRow, gridTemplateColumns: '28px 1fr 60px 55px 90px' }}>
+              <div key={i} style={{ ...S.setRow }}>
                 <div style={{ ...S.setN, ...(isDone ? S.sNDone : isOn ? S.sNOn : S.sNFut) }}>
                   {isDone ? '✓' : i + 1}
                 </div>
-                <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : isOn ? '#111' : '#ccc' }}>
-                  {isDone ? `${w || '—'} kg · ${rp || '—'} reps` : isOn ? '← atual' : ''}
+                <div style={{ textAlign: 'center' }}>
+                  {isOn ? (
+                    <input type="number" placeholder="kg" value={w}
+                      onChange={e => setWeights(prev => ({ ...prev, [`${exIdx}-${doneSets}`]: e.target.value }))}
+                      style={{ width: '100%', fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '0.5px solid #ddd', fontFamily: 'inherit', textAlign: 'center' }} />
+                  ) : (
+                    <span style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>{isDone ? (weights[`${exIdx}-${i}`] || '—') : ''}</span>
+                  )}
                 </div>
-                {isOn ? (
-                  <input
-                    type="number"
-                    placeholder="kg"
-                    value={w}
-                    onChange={e => setWeight(e.target.value)}
-                    style={{ width: '100%', fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '0.5px solid #ddd', fontFamily: 'inherit', textAlign: 'center' }}
-                  />
-                ) : (
-                  <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc', textAlign: 'center' }}>{isDone ? w || '—' : ''}</div>
-                )}
-                {isOn ? (
-                  <input
-                    type="number"
-                    placeholder="reps"
-                    value={rp}
-                    onChange={e => setReps(e.target.value)}
-                    style={{ width: '100%', fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '0.5px solid #ddd', fontFamily: 'inherit', textAlign: 'center' }}
-                  />
-                ) : (
-                  <div style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc', textAlign: 'center' }}>{isDone ? rp || '—' : ''}</div>
-                )}
+                <div style={{ textAlign: 'center' }}>
+                  {isOn ? (
+                    <input type="number" placeholder="reps" value={rp}
+                      onChange={e => setRepsLog(prev => ({ ...prev, [`${exIdx}-${doneSets}`]: e.target.value }))}
+                      style={{ width: '100%', fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '0.5px solid #ddd', fontFamily: 'inherit', textAlign: 'center' }} />
+                  ) : (
+                    <span style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>{isDone ? (repsLog[`${exIdx}-${i}`] || '—') : ''}</span>
+                  )}
+                </div>
                 <div style={S.rBtns}>
                   {Object.entries(EFFORT).map(([k, v]) => (
                     <button key={k}
@@ -285,6 +308,7 @@ export default function Treino() {
                     </button>
                   ))}
                 </div>
+                <div />
               </div>
             )
           })}
@@ -399,7 +423,14 @@ export default function Treino() {
             </div>
           </div>
           <div style={S.insightBox}>{insightMsg}</div>
-          <button style={S.btnConf} onClick={() => navigate(`/home/${id}`, { state: { plan, user } })}>
+          <button style={S.btnConf} onClick={() => {
+            // avança para a próxima sessão do plano
+            const sessions = plan?.sessions || []
+            const currentSessionLabel = session.label
+            const currentIdx = sessions.findIndex(s => s.label === currentSessionLabel)
+            const nextIdx = (currentIdx + 1) % sessions.length
+            navigate(`/home/${id}`, { state: { plan, user, nextSessionIndex: nextIdx } })
+          }}>
             Voltar para início
           </button>
         </div>

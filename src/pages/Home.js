@@ -44,7 +44,7 @@ export default function Home() {
   const [user, setUser] = useState(location.state?.user || null)
   const [plan, setPlan] = useState(location.state?.plan || null)
   const [currentWeek, setCurrentWeek] = useState(1)
-  const [sessionIndex, setSessionIndex] = useState(0)
+  const [sessionIndex, setSessionIndex] = useState(location.state?.nextSessionIndex ?? null)
 
   useEffect(() => {
     if (!user && id) {
@@ -73,6 +73,12 @@ export default function Home() {
   }
 
   function calculateSessionIndex(userData) {
+    // se veio do treino com nextSessionIndex, respeita ele
+    if (location.state?.nextSessionIndex !== undefined && location.state?.nextSessionIndex !== null) {
+      setSessionIndex(location.state.nextSessionIndex)
+      return
+    }
+
     const preferredDays = userData.preferred_days || []
     const sessions = userData.plan?.sessions || []
     if (!sessions.length) return
@@ -81,12 +87,10 @@ export default function Home() {
     const todayName = dayNames[new Date().getDay()]
 
     if (preferredDays.length > 0) {
-      // encontra qual índice de treino corresponde ao dia de hoje
       const idx = preferredDays.indexOf(todayName)
       if (idx !== -1) {
         setSessionIndex(idx % sessions.length)
       } else {
-        // hoje não é dia de treino — mostra o próximo treino
         const todayNum = new Date().getDay()
         const dayNums  = preferredDays.map(d => dayNames.indexOf(d))
         const next     = dayNums.find(n => n > todayNum) ?? dayNums[0]
@@ -94,7 +98,6 @@ export default function Home() {
         setSessionIndex(nextIdx % sessions.length)
       }
     } else {
-      // fallback: distribui automaticamente
       const days = parseInt(userData.days_per_week) || 3
       const dayOfWeek = new Date().getDay()
       setSessionIndex(dayOfWeek % Math.min(days, sessions.length))
