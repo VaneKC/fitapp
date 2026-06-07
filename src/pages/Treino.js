@@ -145,34 +145,58 @@ export default function Treino() {
     setRatings(r => ({ ...r, [key]: effortKey }))
   }
 
-  // sugere carga baseada no histórico: mesmo peso, +2.5 se fácil, -2.5 se limite
+  // sugere carga: estado local primeiro, depois histórico do banco
   function getSuggestedWeight(eIdx, sIdx) {
-    // primeiro verifica se já digitou peso nessa série
+    // 1. já tem valor digitado nessa série → usa ele
     if (weights[`${eIdx}-${sIdx}`]) return weights[`${eIdx}-${sIdx}`]
-    // replica peso da série anterior da mesma sessão atual
-    if (sIdx > 0 && weights[`${eIdx}-${sIdx-1}`]) return weights[`${eIdx}-${sIdx-1}`]
-    // busca no histórico da última sessão
+    // 2. série anterior desta sessão → replica
+    for (let s = sIdx - 1; s >= 0; s--) {
+      if (weights[`${eIdx}-${s}`]) return weights[`${eIdx}-${s}`]
+    }
+    // 3. última sessão no banco
     if (!lastLog?.sets_log) return ''
-    const exName = exercises[eIdx]?.name
+    const exName  = exercises[eIdx]?.name
     const lastSet = lastLog.sets_log.find(s => s.exercise_name === exName && s.set_number === sIdx + 1)
+              || lastLog.sets_log.find(s => s.exercise_name === exName)
     if (!lastSet?.weight_kg) return ''
-    const lastEffort = lastLog.sets_log.find(s => s.exercise_name === exName)?.effort
-    if (lastEffort === 'easy')  return String(lastSet.weight_kg + 2.5)
-    if (lastEffort === 'limit') return String(Math.max(lastSet.weight_kg - 2.5, 0))
+    const lastEffort = lastSet.effort
+    if (lastEffort === 'easy')  return String(parseFloat(lastSet.weight_kg) + 2.5)
+    if (lastEffort === 'limit') return String(Math.max(parseFloat(lastSet.weight_kg) - 2.5, 0))
     return String(lastSet.weight_kg)
   }
 
   function getSuggestedReps(eIdx, sIdx) {
+    // 1. já tem valor digitado
     if (repsLog[`${eIdx}-${sIdx}`]) return repsLog[`${eIdx}-${sIdx}`]
+    // 2. série anterior desta sessão
+    for (let s = sIdx - 1; s >= 0; s--) {
+      if (repsLog[`${eIdx}-${s}`]) return repsLog[`${eIdx}-${s}`]
+    }
+    // 3. histórico do banco
     if (!lastLog?.sets_log) return exercises[eIdx]?.reps?.split('–')?.[0] || ''
-    const exName = exercises[eIdx]?.name
+    const exName  = exercises[eIdx]?.name
     const lastSet = lastLog.sets_log.find(s => s.exercise_name === exName && s.set_number === sIdx + 1)
     return lastSet?.reps_done ? String(lastSet.reps_done) : (exercises[eIdx]?.reps?.split('–')?.[0] || '')
   }
 
   function confirmSet() {
     const next = doneSets + 1
+
+    // propaga peso e reps desta série para a próxima automaticamente
+    const currentKey = `${exIdx}-${doneSets}`
+    const nextKey    = `${exIdx}-${next}`
+    const currentWeight = weights[currentKey]
+    const currentReps   = repsLog[currentKey]
+
+    if (currentWeight && !weights[nextKey]) {
+      setWeights(w => ({ ...w, [nextKey]: currentWeight }))
+    }
+    if (currentReps && !repsLog[nextKey]) {
+      setRepsLog(r => ({ ...r, [nextKey]: currentReps }))
+    }
+
     setSetsDone(s => ({ ...s, [exIdx]: next }))
+
     if (next >= totalSets) {
       if (exIdx < exercises.length - 1) {
         setExIdx(i => i + 1)
