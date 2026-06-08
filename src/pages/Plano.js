@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { getMesocycleStructure, getWeekParams, calcCurrentWeek, getPhaseName } from '../lib/weeklyProgression'
 
 const S = {
   wrap:      { fontFamily: 'system-ui, sans-serif', maxWidth: 400, margin: '0 auto', background: '#f5f5f5', minHeight: '100vh', paddingBottom: 80 },
@@ -11,7 +12,7 @@ const S = {
   body:      { padding: '16px 16px 0' },
   card:      { background: 'white', borderRadius: 16, border: '0.5px solid #eee', padding: 16, marginBottom: 12 },
   cardLbl:   { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#888', marginBottom: 10 },
-  weekBlock: { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '0.5px solid #f5f5f5', cursor: 'pointer' },
+  weekBlock: { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '0.5px solid #f5f5f5' },
   weekNum:   { width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, flexShrink: 0 },
   wDone:     { background: '#E1F5EE', color: '#085041' },
   wActive:   { background: '#1D9E75', color: 'white' },
@@ -44,10 +45,20 @@ export default function Plano() {
     }
   }, [id])
 
-  function getCurrentWeek() {
-    if (!user?.created_at) return 1
-    const diff = new Date() - new Date(user.created_at)
-    return Math.min(Math.floor(diff / (1000 * 60 * 60 * 24 * 7)) + 1, plan?.totalWeeks || 6)
+  if (!user || !plan) return <div style={{ padding: 32, textAlign: 'center', color: '#888', fontFamily: 'system-ui' }}>Carregando...</div>
+
+  const level       = plan.level || 'beginner'
+  const structure   = getMesocycleStructure(level)
+  const totalWeeks  = structure.length
+  const currentWeek = calcCurrentWeek(user?.created_at)
+  const sessions    = plan.sessions || []
+  const wp          = getWeekParams(level, currentWeek)
+
+  function getWeekStyle(weekNum, phase) {
+    if (phase === 'deload') return S.wDeload
+    if (weekNum < currentWeek)  return S.wDone
+    if (weekNum === currentWeek) return S.wActive
+    return S.wFuture
   }
 
   function getProtocolName(p) {
@@ -58,60 +69,34 @@ export default function Plano() {
     return { full_body: 'Full Body', upper_lower: 'Upper/Lower', ppl: 'PPL' }[s] || 'Full Body'
   }
 
-  if (!user || !plan) return <div style={{ padding: 32, textAlign: 'center', color: '#888', fontFamily: 'system-ui' }}>Carregando...</div>
-
-  const totalWeeks   = plan.totalWeeks || 6
-  const deloadWeek   = plan.deloadWeek || totalWeeks
-  const currentWeek  = getCurrentWeek()
-  const sessions     = plan.sessions || []
-
-  function getWeekStyle(weekNum) {
-    if (weekNum === deloadWeek) return S.wDeload
-    if (weekNum < currentWeek)  return S.wDone
-    if (weekNum === currentWeek) return S.wActive
-    return S.wFuture
-  }
-
-  function getWeekLabel(weekNum) {
-    if (weekNum === deloadWeek) return 'Deload — recuperação ativa'
-    if (weekNum === 1) return 'Semana 1 — Adaptação'
-    if (weekNum < currentWeek) return `Semana ${weekNum} — Concluída`
-    if (weekNum === currentWeek) return `Semana ${weekNum} — Em andamento`
-    return `Semana ${weekNum} — Volume progressivo`
-  }
-
-  function getWeekParams(weekNum) {
-    if (weekNum === deloadWeek) return '2 séries · 12 reps · Esforço leve'
-    const params = plan.params
-    if (!params) return '3 séries · 10–12 reps'
-    return `${params.sets} séries · ${params.reps} reps · ${params.effort}`
-  }
-
   return (
     <div style={S.wrap}>
       <div style={S.header}>
         <div style={S.title}>Meu plano</div>
-        <div style={S.subtitle}>{plan.mesocycleName || 'Acumulação 1'} · {getProtocolName(plan.protocol)} · {totalWeeks} semanas</div>
+        <div style={S.subtitle}>{wp.phaseName} · {getProtocolName(plan.protocol)} · {totalWeeks} semanas</div>
       </div>
 
       <div style={S.body}>
         <div style={S.card}>
           <div style={S.cardLbl}>Semanas do mesociclo</div>
-          {Array.from({ length: totalWeeks }, (_, i) => {
-            const weekNum = i + 1
-            const isDeload = weekNum === deloadWeek
+          {structure.map((w, i) => {
+            const wpW = getWeekParams(level, w.week)
             return (
-              <div key={weekNum} style={{ ...S.weekBlock, ...(weekNum === totalWeeks ? { borderBottom: 'none' } : {}) }}>
-                <div style={{ ...S.weekNum, ...getWeekStyle(weekNum) }}>
-                  {weekNum < currentWeek ? '✓' : weekNum}
+              <div key={w.week} style={{ ...S.weekBlock, ...(w.week === totalWeeks ? { borderBottom: 'none' } : {}) }}>
+                <div style={{ ...S.weekNum, ...getWeekStyle(w.week, w.phase) }}>
+                  {w.week < currentWeek ? '✓' : w.week}
                 </div>
                 <div style={S.weekInfo}>
-                  <div style={S.weekTitle}>{getWeekLabel(weekNum)}</div>
-                  <div style={S.weekSub}>{getWeekParams(weekNum)}</div>
+                  <div style={S.weekTitle}>
+                    Semana {w.week} — {w.phaseName}
+                    {w.week < currentWeek && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 6 }}>· Concluída</span>}
+                    {w.week === currentWeek && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 6 }}>· Em andamento</span>}
+                  </div>
+                  <div style={S.weekSub}>{wpW.sets} séries · {wpW.reps} reps · {wpW.effort}</div>
                 </div>
-                {weekNum === currentWeek && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 500 }}>← hoje</span>}
-                {isDeload && weekNum !== currentWeek && <span style={{ fontSize: 11, color: '#BA7517' }}>deload</span>}
-                {weekNum > currentWeek && !isDeload && <span style={{ fontSize: 16, color: '#ddd' }}>🔒</span>}
+                {w.week === currentWeek && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 500 }}>← hoje</span>}
+                {w.isDeload && w.week !== currentWeek && <span style={{ fontSize: 11, color: '#BA7517' }}>deload</span>}
+                {w.week > currentWeek && !w.isDeload && <span style={{ fontSize: 16, color: '#ddd' }}>🔒</span>}
               </div>
             )
           })}
@@ -129,14 +114,14 @@ export default function Plano() {
         </div>
 
         <div style={S.card}>
-          <div style={S.cardLbl}>Parâmetros do plano atual</div>
+          <div style={S.cardLbl}>Parâmetros desta semana</div>
           <div style={S.infoRow}><span style={S.infoLbl}>Protocolo</span><span style={S.infoVal}>{getProtocolName(plan.protocol)}</span></div>
           <div style={S.infoRow}><span style={S.infoLbl}>Divisão</span><span style={S.infoVal}>{getSplitName(plan.split)}</span></div>
-          <div style={S.infoRow}><span style={S.infoLbl}>Fase atual</span><span style={S.infoVal}>{currentWeek === deloadWeek ? 'Deload' : 'Acumulação'}</span></div>
-          <div style={S.infoRow}><span style={S.infoLbl}>Séries por exercício</span><span style={S.infoVal}>{plan.params?.sets || '3'}</span></div>
-          <div style={S.infoRow}><span style={S.infoLbl}>Repetições</span><span style={S.infoVal}>{plan.params?.reps || '10–12'}</span></div>
-          <div style={S.infoRow}><span style={S.infoLbl}>Esforço alvo</span><span style={S.infoVal}>{plan.params?.effort || 'Bom esforço'}</span></div>
-          <div style={{ ...S.infoRow, borderBottom: 'none' }}><span style={S.infoLbl}>Avaliação de nível</span><span style={S.infoVal}>Semana {deloadWeek} (deload)</span></div>
+          <div style={S.infoRow}><span style={S.infoLbl}>Fase atual</span><span style={S.infoVal}>{wp.phaseName}</span></div>
+          <div style={S.infoRow}><span style={S.infoLbl}>Séries por exercício</span><span style={S.infoVal}>{wp.sets}</span></div>
+          <div style={S.infoRow}><span style={S.infoLbl}>Repetições</span><span style={S.infoVal}>{wp.reps}</span></div>
+          <div style={S.infoRow}><span style={S.infoLbl}>Esforço alvo</span><span style={S.infoVal}>{wp.effort}</span></div>
+          <div style={{ ...S.infoRow, borderBottom: 'none' }}><span style={S.infoLbl}>Avaliação de nível</span><span style={S.infoVal}>Semana {totalWeeks} (deload)</span></div>
         </div>
       </div>
 
