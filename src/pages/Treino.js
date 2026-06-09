@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getWeekParams, calcCurrentWeek, isDeloadWeek } from '../lib/weeklyProgression'
+import { detectPlateauAndSuggest } from '../lib/levelEvaluation'
 
 const S = {
   wrap:     { fontFamily: 'system-ui, sans-serif', maxWidth: 400, margin: '0 auto', background: '#f5f5f5', minHeight: '100vh' },
@@ -68,21 +69,38 @@ export default function Treino() {
   const { id } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { session, plan, user } = location.state || {}
+  const { session, plan, user, checkin } = location.state || {}
 
   // parâmetros da semana atual
   const currentWeek  = calcCurrentWeek(user?.created_at)
   const weekParams   = getWeekParams(plan?.level || 'beginner', currentWeek)
   const deload       = isDeloadWeek(plan?.level || 'beginner', currentWeek)
 
-  // aplica parâmetros semanais nos exercícios
+  // ajuste baseado no check-in
+  function applyCheckinAdjustment(params) {
+    if (!checkin) return params
+    const adj = checkin.adjustment
+    if (adj === 'reduced') {
+      // reduz 1 série — pega o número menor do range
+      const setsNum = parseInt(String(params.sets).split('–')[0]) || 3
+      return { ...params, sets: String(Math.max(setsNum - 1, 2)), effort: 'Bom esforço', effortColor: '#1D9E75' }
+    }
+    if (adj === 'light') {
+      return { ...params, sets: '2', reps: '12–15', effort: 'Bom esforço', effortColor: '#1D9E75', rest: 60 }
+    }
+    return params
+  }
+
+  const adjustedParams = applyCheckinAdjustment(weekParams)
+
+  // aplica parâmetros semanais + ajuste do check-in nos exercícios
   const exercises = (session?.exercises || []).map(ex => ({
     ...ex,
-    sets:        deload ? '2' : (weekParams.sets || ex.sets),
-    reps:        deload ? '12–15' : (weekParams.reps || ex.reps),
-    rest:        weekParams.rest || ex.rest,
-    effort:      weekParams.effort || ex.effort,
-    effortColor: weekParams.effortColor || ex.effortColor,
+    sets:        deload ? '2' : (adjustedParams.sets || ex.sets),
+    reps:        deload ? '12–15' : (adjustedParams.reps || ex.reps),
+    rest:        adjustedParams.rest || ex.rest,
+    effort:      adjustedParams.effort || ex.effort,
+    effortColor: adjustedParams.effortColor || ex.effortColor,
   }))
 
   const [exIdx, setExIdx]       = useState(0)
@@ -92,6 +110,7 @@ export default function Treino() {
   const [weights, setWeights]   = useState({})
   const [repsLog, setRepsLog]   = useState({})
   const [lastLog, setLastLog]   = useState(null)
+  const [plateau, setPlateau]   = useState(null)
   const [restSec, setRestSec]   = useState(90)
   const [totalSec, setTotalSec] = useState(0)
   const restRef   = useRef(null)
@@ -114,6 +133,18 @@ export default function Treino() {
         .order('created_at', { ascending: false })
         .limit(1)
       if (data && data.length > 0) setLastLog(data[0])
+
+      // carrega todos os logs para detectar plateau
+      const { data: allLogs } = await supabase
+        .from('session_logs')
+        .select('sets_log, created_at')
+        .eq('user_id', id)
+        .eq('completed', true)
+        .order('created_at', { ascending: true })
+      if (allLogs && allLogs.length >= 3) {
+        const p = detectPlateauAndSuggest(allLogs, exercises)
+        if (p) setPlateau(p)
+      }
     }
     loadLastLog()
   }, [id, session?.label])
@@ -242,6 +273,22 @@ export default function Treino() {
         {deload && (
           <div style={{ background: '#FAEEDA', border: '0.5px solid #FAC775', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#633806', display: 'flex', gap: 8 }}>
             🔋 <span><strong>Semana de deload</strong> — volume reduzido para recuperação. Foque na técnica!</span>
+          </div>
+        )}
+        {checkin && checkin.adjustment === 'reduced' && !deload && (
+          <div style={{ background: '#FAEEDA', border: '0.5px solid #FAC775', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#633806', display: 'flex', gap: 8 }}>
+            ⚡ <span><strong>Ajuste automático</strong> — 1 série reduzida por exercício por conta do seu check-in.</span>
+          </div>
+        )}
+        {checkin && checkin.adjustment === 'light' && !deload && (
+          <div style={{ background: '#FCEBEB', border: '0.5px solid #F7C1C1', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#791F1F', display: 'flex', gap: 8 }}>
+            🛌 <span><strong>Treino leve de hoje</strong> — 2 séries, esforço moderado. Seu corpo agradece!</span>
+          </div>
+        )}
+        {plateau && exIdx === 0 && (
+          <div style={{ background: '#EEEDFE', border: '0.5px solid #CECBF6', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#3C3489', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <span style={{ flexShrink: 0 }}>📊</span>
+            <span><strong>Plateau detectado em {plateau.exerciseName.split(' ').slice(0,2).join(' ')}</strong> — {plateau.reason} Considere substituir por <strong>{plateau.suggestion}</strong>.</span>
           </div>
         )}
         <div style={S.card}>
@@ -377,8 +424,14 @@ export default function Treino() {
             <div style={S.stat}><div style={S.statLbl}>Duração</div><div style={S.statVal}>{Math.floor(totalSec / 60)}<span style={{ fontSize: 13, fontWeight: 400 }}>min</span></div><div style={S.statDlt}>Ótimo ritmo</div></div>
           </div>
           <div style={S.insight}>{insightMsg}</div>
-          <button style={S.btnConf} onClick={() => navigate(`/home/${id}`, { state: { plan, user, nextSessionIndex: nextIdx } })}>
-            Voltar para início
+          <button style={S.btnConf} onClick={() => {
+            if (deload) {
+              navigate(`/avaliacao/${id}`, { state: { plan, user } })
+            } else {
+              navigate(`/home/${id}`, { state: { plan, user, nextSessionIndex: nextIdx } })
+            }
+          }}>
+            {deload ? '📊 Ver avaliação de nível →' : 'Voltar para início'}
           </button>
         </div>
       </div>

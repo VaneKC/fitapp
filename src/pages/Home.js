@@ -181,7 +181,7 @@ export default function Home() {
             )}
             <button
               style={deload ? S.btnDeload : S.btnStart}
-              onClick={() => navigate(`/treino/${id}`, { state: { session: todaySession, plan, user } })}
+              onClick={() => navigate(`/checkin/${id}`, { state: { session: todaySession, plan, user } })}
             >
               {deload ? '🔋 Iniciar treino de deload' : '▶ Iniciar treino'}
             </button>
