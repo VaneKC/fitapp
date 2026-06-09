@@ -142,7 +142,7 @@ export default function Treino() {
         .eq('completed', true)
         .order('created_at', { ascending: true })
       if (allLogs && allLogs.length >= 3) {
-        const p = detectPlateauAndSuggest(allLogs, exercises)
+        const p = detectPlateauAndSuggest(allLogs, exercises, plan?.level || 'beginner')
         if (p) setPlateau(p)
       }
     }
@@ -164,6 +164,12 @@ export default function Treino() {
   }, [screen])
 
   if (!session) return <div style={{ padding: 32, textAlign: 'center', fontFamily: 'system-ui', color: '#888' }}>Treino não encontrado.</div>
+
+  // check-in obrigatório — redireciona se não veio da tela de check-in
+  if (!checkin) {
+    navigate(`/checkin/${id}`, { state: { session, plan, user }, replace: true })
+    return null
+  }
 
   const ex = exercises[exIdx]
   const totalSets = (() => {
@@ -249,6 +255,8 @@ export default function Treino() {
       await supabase.from('session_logs').insert([{
         user_id: id, session_label: session.label, ratings,
         sets_log: setsLog, strength_scores: strengthScores,
+        checkin_score:    checkin?.score || null,
+        checkin_data:     checkin || null,
         duration_sec: totalSec, completed: true, created_at: new Date().toISOString(),
       }])
     } catch (e) { console.log('Erro ao salvar log:', e) }

@@ -94,6 +94,12 @@ export default function AvaliacaoNivel() {
       <div style={S.title}>Avaliação de nível</div>
       <div style={S.sub}>Fim do mesociclo — veja como você evoluiu</div>
 
+      {evaluation.hasFatigue && (
+        <div style={{ background: '#FAEEDA', border: '0.5px solid #FAC775', borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 13, color: '#633806', lineHeight: 1.6 }}>
+          ⚠️ <strong>Padrão de fadiga detectado</strong> — seus últimos check-ins indicam cansaço acumulado. O próximo ciclo começa com volume reduzido para garantir uma boa recuperação.
+        </div>
+      )}
+
       {canPromote ? (
         <div style={S.promoBox}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
