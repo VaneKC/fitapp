@@ -105,13 +105,17 @@ export default function Treino() {
 
   const [exIdx, setExIdx]       = useState(0)
   const [screen, setScreen]     = useState('exec')
-  const [ratings, setRatings]   = useState({})
-  const [setsDone, setSetsDone] = useState({})
-  const [weights, setWeights]   = useState({})
-  const [repsLog, setRepsLog]   = useState({})
-  const [lastLog, setLastLog]   = useState(null)
-  const [plateau, setPlateau]   = useState(null)
-  const [restSec, setRestSec]   = useState(90)
+  const [ratings, setRatings]       = useState({})
+  const [setsDone, setSetsDone]     = useState({})
+  const [weights, setWeights]       = useState({})
+  const [repsLog, setRepsLog]       = useState({})
+  const [isoTimes, setIsoTimes]     = useState({}) // { "exIdx-setIdx": segundos }
+  const [isoRunning, setIsoRunning] = useState(false)
+  const [isoSec, setIsoSec]         = useState(0)
+  const isoRef                      = useRef(null)
+  const [lastLog, setLastLog]       = useState(null)
+  const [plateau, setPlateau]       = useState(null)
+  const [restSec, setRestSec]       = useState(90)
   const [totalSec, setTotalSec] = useState(0)
   const restRef   = useRef(null)
   const chronoRef = useRef(null)
@@ -177,13 +181,44 @@ export default function Treino() {
     if (s.includes('–')) return parseInt(s.split('–')[1])
     return parseInt(s) || 3
   })()
-  const doneSets = setsDone[exIdx] || 0
-  const progPct  = Math.round((exIdx / exercises.length) * 100)
-  const fmtTime  = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  const doneSets  = setsDone[exIdx] || 0
+  const progPct   = Math.round((exIdx / exercises.length) * 100)
+  const fmtTime   = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   const fmtRest  = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
   function rateSet(k) {
     setRatings(r => ({ ...r, [`${exIdx}-${doneSets}`]: k }))
+  }
+
+  // ── cronômetro isométrico ──────────────────────────────────
+  function startIso() {
+    setIsoSec(0)
+    setIsoRunning(true)
+    isoRef.current = setInterval(() => setIsoSec(s => s + 1), 1000)
+  }
+
+  function stopIso() {
+    clearInterval(isoRef.current)
+    setIsoRunning(false)
+    // desconta 5 segundos de delay de reação (mínimo 1 segundo)
+    const finalTime = Math.max(isoSec - 5, 1)
+    const key = `${exIdx}-${doneSets}`
+    setIsoTimes(t => ({ ...t, [key]: finalTime }))
+    setRepsLog(r => ({ ...r, [key]: finalTime })) // salva como reps p/ compatibilidade
+  }
+
+  function getLastIsoTime(eIdx, sIdx) {
+    // busca último tempo registrado para este exercício no histórico
+    if (!lastLog?.sets_log) return null
+    const exName = exercises[eIdx]?.name
+    const lastSet = lastLog.sets_log.find(s => s.exercise_name === exName && s.set_number === sIdx + 1)
+    return lastSet?.reps_done || null // reps_done guarda o tempo em segundos
+  }
+
+  function fmtIso(sec) {
+    const m = Math.floor(sec / 60)
+    const s = sec % 60
+    return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
   function getSuggestedWeight(eIdx, sIdx) {
@@ -217,6 +252,11 @@ export default function Treino() {
     const next = doneSets + 1
     const curKey  = `${exIdx}-${doneSets}`
     const nextKey = `${exIdx}-${next}`
+
+    // para o cronômetro se ainda estiver rodando
+    if (isoRunning) { clearInterval(isoRef.current); setIsoRunning(false) }
+    setIsoSec(0)
+
     const curW = weights[curKey]
     const curR = repsLog[curKey]
     if (curW && !weights[nextKey]) setWeights(w => ({ ...w, [nextKey]: curW }))
@@ -316,53 +356,138 @@ export default function Treino() {
             <div style={{ ...S.eBarFl, width: (currentRating ? EFFORT[currentRating].pct : 60) + '%', background: currentRating ? EFFORT[currentRating].color : (ex?.effortColor || '#1D9E75') }} />
           </div>
           <div style={S.tip}>💡 {ex?.tip}</div>
-          <div style={{ ...S.setsHdr }}>
-            <span></span><span>Kg</span><span>Reps</span><span>Esforço</span>
-          </div>
-          {Array.from({ length: totalSets }, (_, i) => {
-            const isDone = i < doneSets
-            const isOn   = i === doneSets
-            const r      = ratings[`${exIdx}-${i}`]
-            const w      = isOn ? getSuggestedWeight(exIdx, i) : (weights[`${exIdx}-${i}`] || '')
-            const rp     = isOn ? getSuggestedReps(exIdx, i) : (repsLog[`${exIdx}-${i}`] || '')
-            return (
-              <div key={i} style={S.setRow}>
-                <div style={{ ...S.setN, ...(isDone ? S.sNDone : isOn ? S.sNOn : S.sNFut) }}>
-                  {isDone ? '✓' : i + 1}
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  {isOn
-                    ? <input type="number" placeholder="kg" value={w} style={S.inputSm}
-                        onChange={e => setWeights(prev => ({ ...prev, [`${exIdx}-${doneSets}`]: e.target.value }))} />
-                    : <span style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>{isDone ? (w || '—') : ''}</span>
-                  }
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  {isOn
-                    ? <input type="number" placeholder="reps" value={rp} style={S.inputSm}
-                        onChange={e => setRepsLog(prev => ({ ...prev, [`${exIdx}-${doneSets}`]: e.target.value }))} />
-                    : <span style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>{isDone ? (rp || '—') : ''}</span>
-                  }
-                </div>
-                <div style={S.rBtns}>
-                  {Object.entries(EFFORT).map(([k, v]) => (
-                    <button key={k} title={v.label}
-                      style={{ ...S.rBtn, ...(r === k ? { background: v.color, color: 'white', borderColor: 'transparent' } : {}), ...(!isOn ? { opacity: 0.35, cursor: 'default' } : {}) }}
-                      onClick={() => isOn && rateSet(k)}>
-                      {v.label[0]}
-                    </button>
-                  ))}
-                </div>
+
+          {ex?.isometric ? (
+            // ── modo isométrico ──────────────────────────────
+            <>
+              <div style={{ ...S.setsHdr }}>
+                <span></span><span style={{ gridColumn: '2 / 4', textAlign: 'center' }}>Tempo</span><span>Esforço</span>
               </div>
-            )
-          })}
+              {Array.from({ length: totalSets }, (_, i) => {
+                const isDone    = i < doneSets
+                const isOn      = i === doneSets
+                const r         = ratings[`${exIdx}-${i}`]
+                const savedTime = isoTimes[`${exIdx}-${i}`]
+                const lastTime  = getLastIsoTime(exIdx, i)
+                return (
+                  <div key={i} style={S.setRow}>
+                    <div style={{ ...S.setN, ...(isDone ? S.sNDone : isOn ? S.sNOn : S.sNFut) }}>
+                      {isDone ? '✓' : i + 1}
+                    </div>
+                    <div style={{ gridColumn: '2 / 4', textAlign: 'center' }}>
+                      {isDone ? (
+                        <span style={{ fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>
+                          {fmtIso(isoTimes[`${exIdx}-${i}`] || 0)} ✓
+                        </span>
+                      ) : isOn ? (
+                        <div>
+                          {lastTime && !isoRunning && !savedTime && (
+                            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>
+                              Última vez: {fmtIso(lastTime)}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 28, fontWeight: 700, color: isoRunning ? '#1D9E75' : '#111', fontVariantNumeric: 'tabular-nums', marginBottom: 8 }}>
+                            {savedTime ? fmtIso(savedTime) : fmtIso(isoSec)}
+                          </div>
+                          {!savedTime && (
+                            <button
+                              onClick={isoRunning ? stopIso : startIso}
+                              style={{
+                                padding: '8px 20px', borderRadius: 8, border: 'none', fontFamily: 'inherit',
+                                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                                background: isoRunning ? '#E24B4A' : '#1D9E75', color: 'white',
+                              }}
+                            >
+                              {isoRunning ? '⏹ Parar' : '▶ Iniciar'}
+                            </button>
+                          )}
+                          {savedTime && (
+                            <div style={{ fontSize: 13, color: '#1D9E75', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              {fmtIso(savedTime)} ✓
+                              <span
+                                title="Descontamos 5s do tempo de reação para pausar"
+                                style={{
+                                  width: 16, height: 16, borderRadius: '50%',
+                                  background: '#9FE1CB', color: '#085041',
+                                  fontSize: 10, fontWeight: 700,
+                                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                  cursor: 'help', flexShrink: 0,
+                                }}
+                              >i</span>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: '#ccc' }}>—</span>
+                      )}
+                    </div>
+                    <div style={S.rBtns}>
+                      {Object.entries(EFFORT).map(([k, v]) => (
+                        <button key={k} title={v.label}
+                          style={{ ...S.rBtn, ...(r === k ? { background: v.color, color: 'white', borderColor: 'transparent' } : {}), ...(!isOn ? { opacity: 0.35, cursor: 'default' } : {}) }}
+                          onClick={() => isOn && rateSet(k)}>
+                          {v.label[0]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          ) : (
+            // ── modo normal (kg + reps) ──────────────────────
+            <>
+              <div style={{ ...S.setsHdr }}>
+                <span></span><span>Kg</span><span>Reps</span><span>Esforço</span>
+              </div>
+              {Array.from({ length: totalSets }, (_, i) => {
+                const isDone = i < doneSets
+                const isOn   = i === doneSets
+                const r      = ratings[`${exIdx}-${i}`]
+                const w      = isOn ? getSuggestedWeight(exIdx, i) : (weights[`${exIdx}-${i}`] || '')
+                const rp     = isOn ? getSuggestedReps(exIdx, i) : (repsLog[`${exIdx}-${i}`] || '')
+                return (
+                  <div key={i} style={S.setRow}>
+                    <div style={{ ...S.setN, ...(isDone ? S.sNDone : isOn ? S.sNOn : S.sNFut) }}>
+                      {isDone ? '✓' : i + 1}
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      {isOn
+                        ? <input type="number" placeholder="kg" value={w} style={S.inputSm}
+                            onChange={e => setWeights(prev => ({ ...prev, [`${exIdx}-${doneSets}`]: e.target.value }))} />
+                        : <span style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>{isDone ? (w || '—') : ''}</span>
+                      }
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      {isOn
+                        ? <input type="number" placeholder="reps" value={rp} style={S.inputSm}
+                            onChange={e => setRepsLog(prev => ({ ...prev, [`${exIdx}-${doneSets}`]: e.target.value }))} />
+                        : <span style={{ fontSize: 12, color: isDone ? '#1D9E75' : '#ccc' }}>{isDone ? (rp || '—') : ''}</span>
+                      }
+                    </div>
+                    <div style={S.rBtns}>
+                      {Object.entries(EFFORT).map(([k, v]) => (
+                        <button key={k} title={v.label}
+                          style={{ ...S.rBtn, ...(r === k ? { background: v.color, color: 'white', borderColor: 'transparent' } : {}), ...(!isOn ? { opacity: 0.35, cursor: 'default' } : {}) }}
+                          onClick={() => isOn && rateSet(k)}>
+                          {v.label[0]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+
           {currentRating && (
             <div style={{ marginTop: 10, fontSize: 12, color: '#555', padding: '8px 10px', background: '#f7f7f7', borderRadius: 8 }}>
               {EFFORT[currentRating].msg}
             </div>
           )}
         </div>
-        <button style={S.btnConf} onClick={confirmSet}>
+        <button style={S.btnConf} onClick={confirmSet}
+          disabled={ex?.isometric && isOn && !isoTimes[`${exIdx}-${doneSets}`] && !ratings[`${exIdx}-${doneSets}`]}>
           ✓ Confirmar série {Math.min(doneSets + 1, totalSets)} de {totalSets}
         </button>
         <button style={S.btnTech} onClick={() => setScreen('tech')}>👁 Ver técnica detalhada</button>
